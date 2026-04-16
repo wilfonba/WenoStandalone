@@ -12,3 +12,7 @@ results/
 *.swp
 *.swo
 .DS_Store
+
+# Results
+!results/cce_mp_ex/
+!results/amd_mp_ex/
