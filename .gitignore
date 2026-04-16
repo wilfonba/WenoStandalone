@@ -1,0 +1,14 @@
+# Build + run output
+build/
+results/
+
+# Local Python venv for rocprof-compute (recreate via `./wenoss.sh setup-venv`)
+.venv-rocprof-compute/
+
+# rocprof* tool state
+.rocprofv3/
+
+# Editor / OS cruft
+*.swp
+*.swo
+.DS_Store

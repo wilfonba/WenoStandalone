@@ -1,0 +1,10 @@
+&grid_params
+  m_cells = 199,
+  n_cells = 199,
+  p_cells = 199,
+  v_size  = 8,
+  buff_size = 6,
+  weno_eps = 1e-16,
+  wenojs = T,
+  teno_CT = 1e-5
+/

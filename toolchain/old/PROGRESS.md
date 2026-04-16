@@ -1,0 +1,761 @@
+# WENO5 Optimization Progress
+
+## Scope
+
+Current optimization work is focused on `s_weno5_kernel` in `weno_standalone.f90`.
+
+Primary concerns:
+
+- register pressure / register spilling in generated GPU code
+- inefficient memory access patterns
+- GPU metric collection with `rocprofv3`
+
+Constraint:
+
+- do not apply harness-specific optimizations that would change behavior in the MFC application
+
+## Current Tooling
+
+- Compiler:
+  - `/sw/crusher/ums/compilers/afar/therock-23.1.0-gfx90a-7.12.0-bb5005b6/bin/amdflang`
+- Profiler:
+  - `/sw/crusher/ums/compilers/afar/therock-23.1.0-gfx90a-7.12.0-bb5005b6/bin/rocprofv3`
+- Alternative ROCm module tested:
+  - `module load rocm/7.2.0`
+  - provides `/opt/rocm-7.2.0/bin/rocm-smi`
+  - provides `/opt/rocm-7.2.0/bin/rocprofv3`
+- Default runner:
+  - direct execution, no `srun`
+- Default GPU visibility:
+  - `ROCR_VISIBLE_DEVICE=0`
+  - `ROCR_VISIBLE_DEVICES=0`
+
+## Implemented
+
+- Added benchmark controls to the harness:
+  - `WENO_WARMUP_ITERS`
+  - `WENO_BENCH_ITERS`
+- Added kernel-mode selection:
+  - `WENO_KERNEL_MODE=all`
+  - `WENO_KERNEL_MODE=weno5`
+- Added a focused execution path that runs only the WENO5 kernels.
+- Added Makefile targets:
+  - `make build`
+  - `make build-save-temps`
+  - `make profile-weno5`
+  - `make list-pmc`
+- Added `rocprofv3` wrapper script:
+  - `scripts/profile_weno5_rocprofv3.sh`
+- Added amdflang sweep plumbing and environment pass-through for kernel mode.
+- Added explicit `rocprofv3` output-format plumbing:
+  - `ROCPROFV3_OUTPUT_FORMAT` defaults to `csv json rocpd`
+  - `ROCPROFV3_PMC_ARGS` can append raw `--pmc ...` groups
+- Added explicit runtime thread-limit plumbing to the harness tooling:
+  - `OMP_TEAMS_THREAD_LIMIT` is now passed through by `make run`
+  - `OMP_TEAMS_THREAD_LIMIT` is now passed through by `make profile-weno5`
+  - `OMP_TEAMS_THREAD_LIMIT` is now passed through by `scripts/optimize_amdflang.sh`
+  - unset `OMP_TEAMS_THREAD_LIMIT` no longer gets exported as an empty string
+- Added an experimental WENO5 split toggle:
+  - `WENO5_SPLIT_KERNELS=0` keeps the combined left/right WENO5 kernel
+  - `WENO5_SPLIT_KERNELS=1` dispatches separate left and right WENO5 kernels
+  - the split path preserves the existing target-data lifetime, so no extra CPU/GPU transfers are introduced between the two WENO5 kernels
+- Added an experimental specialized-combined WENO5 toggle:
+  - `WENO5_SPECIALIZED_COMBINED=0` keeps the generic combined WENO5 kernel path
+  - `WENO5_SPECIALIZED_COMBINED=1` dispatches x/y/z-specialized combined kernels that reference the harness module coefficient/input arrays directly
+  - this is an experiment to probe descriptor/live-state pressure in the combined kernel; it is not yet an MFC-portable recommendation
+- Applied a first source-level optimization pass to `s_weno5_kernel`:
+  - scalarized fixed-size temporaries (`dvd`, `poly`, `beta`, `alpha`, `omega`, `delta`)
+  - separated left/right reconstruction state through scalar locals
+  - cached the cell-center value in a scalar (`vj`) to shorten repeated load/live ranges
+- Applied a follow-on stencil-value cleanup in `s_weno5_kernel`:
+  - cached `v_rs_ws(j-2:j+2)` neighbors in scalars before forming `dvd`
+  - preserved the prior scalarized structure and original OpenMP clause layout
+- Applied a small combined-kernel cleanup in `s_weno5_kernel`:
+  - removed one redundant duplicate evaluation of the left-side `poly0/poly1/poly2` reconstruction
+  - preserved the original OpenMP clause layout and the current combined-kernel structure
+- Applied the current best portable generic-combined WENO5 change set in `s_weno5_kernel`:
+  - converted the generic combined dummy arrays to explicit-shape bounds
+  - retained the accepted `thread_limit(192)` clause in the generic combined kernel
+  - stages `polyL(j, :, :)` / `polyR(j, :, :)` coefficient rows into reused just-in-time scalars
+  - preserves the combined-kernel structure and avoids harness-specific specialization
+
+## Validation Completed
+
+- `amdflang` build completed successfully with:
+  - `-fopenmp -fopenmp-targets=amdgcn-amd-amdhsa --offload-arch=gfx90a -O3`
+- `make -n build-save-temps` shows the expected `-save-temps` build command.
+- `make build-save-temps` completed successfully and emitted host/device temp artifacts.
+- `make profile-weno5 WENO_WARMUP_ITERS=1 WENO_BENCH_ITERS=10` now reaches direct `rocprofv3` launch without `srun`.
+- Host fallback run for WENO5-only mode completed successfully with:
+  - `OMP_TARGET_OFFLOAD=DISABLED`
+  - `WENO_KERNEL_MODE=weno5`
+  - `WENO_WARMUP_ITERS=0`
+  - `WENO_BENCH_ITERS=1`
+
+Observed host-fallback output:
+
+- `Checksum T : 3.9728680936E+06`
+- `Kernel time per iter : 0.155236 s`
+
+Latest host-fallback validation after the scalarization pass:
+
+- command:
+  - `OMP_TARGET_OFFLOAD=DISABLED WENO_KERNEL_MODE=weno5 WENO_WARMUP_ITERS=0 WENO_BENCH_ITERS=1 ./build/weno_standalone_amdflang`
+- observed output:
+  - `Checksum T : 3.9728680936E+06`
+  - `Kernel time per iter : 0.088077 s`
+- status:
+  - host fallback still matches the prior checksum baseline after the WENO5 source change
+
+Latest host-fallback validation after removing the duplicate left-side `poly*` block:
+
+- command:
+  - `OMP_TARGET_OFFLOAD=DISABLED WENO_KERNEL_MODE=weno5 WENO_WARMUP_ITERS=0 WENO_BENCH_ITERS=1 ./build/weno_standalone_amdflang`
+- observed output:
+  - `Checksum T : 3.9728680936E+06`
+  - `Kernel time per iter : 0.063990 s`
+- status:
+  - host fallback still matches the checksum baseline after the cleanup
+
+Latest host-fallback validation on the current explicit-shape plus staged-poly source state:
+
+- command:
+  - `OMP_TARGET_OFFLOAD=DISABLED WENO_KERNEL_MODE=weno5 WENO_WARMUP_ITERS=0 WENO_BENCH_ITERS=1 ./build/weno_standalone_amdflang`
+- observed output:
+  - `Checksum T : 3.9728680936E+06`
+  - `Kernel time per iter : 0.059108 s`
+- status:
+  - host fallback still matches the checksum baseline on the current source state
+
+Latest device-IR inspection after `make build-save-temps`:
+
+- `weno_standalone-openmp-amdgcn-amd-amdhsa-gfx90a-llvmir.mlir` now lowers WENO5 private state as scalar `f64` privates for:
+  - `dvd_m2`, `dvd_m1`, `dvd_0`, `dvd_p1`
+  - `poly0`, `poly1`, `poly2`
+  - `beta0`, `beta1`, `beta2`
+  - `alpha0`, `alpha1`, `alpha2`
+  - `omega0`, `omega1`, `omega2`
+  - `delta0`, `delta1`, `delta2`
+- The previous WENO5 boxed private arrays no longer appear in regenerated device MLIR.
+- Outside the Codex sandbox, refreshed save-temps assembly now reports for WENO5:
+  - `num_vgpr = 167`
+  - `num_agpr = 0`
+  - `numbered_sgpr = 96`
+  - `sgpr_spill_count = 34`
+
+Observed temp artifacts of interest:
+
+- `weno_standalone_amdflang_save_temps.amdgcn.gfx90a.img.lto.s`
+- `weno_standalone-openmp-amdgcn-amd-amdhsa-gfx90a-llvmir.mlir`
+- `weno_standalone_amdflang_save_temps.amdgcn.gfx90a.img.0.4.opt.bc`
+
+Initial device-code findings:
+
+- WENO5 device kernel symbol:
+  - `__omp_offloading_8116438_e30011e2__QMm_weno_standalonePs_weno5_kernel_l449`
+- Assembly metadata currently reports:
+  - `num_vgpr = 256`
+  - `num_agpr = 23`
+  - `numbered_sgpr = 96`
+- The generated MLIR still shows boxed private temporaries for:
+  - `dvd`
+  - `poly`
+  - `beta`
+  - `alpha`
+  - `omega`
+  - `delta`
+
+Updated post-change device-code findings:
+
+- Current WENO5 device kernel symbol:
+  - `__omp_offloading_8116438_e30011e2__QMm_weno_standalonePs_weno5_kernel_l455`
+- Relative to the earlier WENO5 baseline:
+  - `num_vgpr` improved from `256` to `167`
+  - `num_agpr` improved from `23` to `0`
+  - `numbered_sgpr` stayed at `96`
+  - `sgpr_spill_count` improved from `192` to `34`
+- Follow-on stencil-cache validation:
+  - refreshed assembly still reports:
+    - `num_vgpr = 167`
+    - `num_agpr = 0`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 34`
+  - short `rocprofv3` verification under `results/rocprofv3_weno5_post_stencil_cache` reports:
+    - WENO5 average duration: `6.363e+04 ns`
+  - interpretation:
+    - the stencil-value cache is effectively neutral-to-slightly-positive and does not regress the improved codegen state
+- Duplicate-`poly*` cleanup validation:
+  - regenerated save-temps still reports:
+    - `num_vgpr = 167`
+    - `num_agpr = 0`
+    - `numbered_sgpr = 96`
+  - interpretation:
+    - removing the duplicated left-side `poly0/poly1/poly2` source work cleans up the combined kernel and helps host fallback timing
+    - it does not change the current top-line combined-kernel register metadata under `amdflang`
+- Discarded experiment:
+  - additionally caching `dL` / `dR` into scalars raised WENO5 to:
+    - `num_vgpr = 215`
+    - `sgpr_spill_count = 41`
+  - that tradeoff was not kept
+- Discarded experiment:
+  - splitting the left/right WENO5 reconstruction into inner `block` scopes compiled and preserved the host checksum baseline
+  - regenerated device MLIR introduced explicit block-local allocas
+  - refreshed WENO5 assembly remained unchanged at:
+    - `num_vgpr = 167`
+    - `num_agpr = 0`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 34`
+  - that structural change was reverted
+- Discarded experiment:
+  - removing the `target` attribute from the generic WENO5 dummy arrays compiled and preserved the host checksum baseline
+  - regenerated device MLIR for `_QMm_weno_standalonePs_weno5_kernel` dropped the dummy `fir.target` markings
+  - authoritative `rocprofv3` timing under `results/rocprofv3_weno5_no_target_dummy` reports:
+    - WENO5 total duration: `2115056 ns`
+    - WENO5 average duration: `6.409e+04 ns`
+  - relative to `results/rocprofv3_weno5_current_baseline_fixed`:
+    - WENO5 total duration regressed slightly from `2097308 ns`
+  - interpretation:
+    - removing `target` on its own does not recover the combined-kernel descriptor/live-state cost in a useful way
+    - that source change was reverted
+- Split-kernel experiment:
+  - fresh combined-kernel save-temps now reports:
+    - `num_vgpr = 167`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 32`
+  - split save-temps reports:
+    - left kernel:
+      - `num_vgpr = 126`
+      - `sgpr_count = 96`
+      - `sgpr_spill_count = 0`
+      - `kernarg_segment_size = 360`
+    - right kernel:
+      - `num_vgpr = 126`
+      - `sgpr_count = 96`
+      - `sgpr_spill_count = 0`
+      - `kernarg_segment_size = 360`
+  - interpretation:
+    - splitting does remove the combined kernel's residual SGPR spilling and materially lowers per-kernel VGPR pressure
+    - but it doubles the WENO5 launch count and recomputes the shared stencil/beta work in each side kernel
+- Split-kernel timing/profile result:
+  - plain `rocprofv3` timing baseline under `results/rocprofv3_weno5_split_eval_combined`:
+    - WENO5 combined kernel calls: `33`
+    - total WENO5 duration: `2085939 ns`
+    - average WENO5 duration: `6.321e+04 ns`
+  - split timing under `results/rocprofv3_weno5_split_eval_split`:
+    - left kernel calls: `33`
+    - right kernel calls: `33`
+    - total split-WENO5 duration: `2937464 ns`
+    - average per left/right pair: about `8.901e+04 ns`
+  - interpretation:
+    - the split path is about `41%` slower on-device for the WENO5 work despite the lower register footprint
+- Split-kernel PMC result:
+  - combined PMC output: `results/rocprofv3_weno5_split_eval_combined_pmc/weno5_profile_counter_collection.csv`
+  - split PMC output: `results/rocprofv3_weno5_split_eval_split_pmc/weno5_profile_counter_collection.csv`
+  - combined WENO5 average counters:
+    - `OccupancyPercent`: about `23.21`
+    - `MeanOccupancyPerCU`: about `7.43`
+    - `SQ_INSTS_VMEM_RD`: `290304`
+    - `SQ_INSTS_VMEM_WR`: `18144`
+    - `TCC_HIT`: about `260098`
+    - `TCC_MISS`: about `130019`
+  - split WENO5 average counters, summed over left+right for one logical reconstruction:
+    - `OccupancyPercent`: about `21.49` average across the two kernels
+    - `MeanOccupancyPerCU`: about `6.88` average across the two kernels
+    - `SQ_INSTS_VMEM_RD`: `417312`
+    - `SQ_INSTS_VMEM_WR`: `18144`
+    - `TCC_HIT`: about `174307`
+    - `TCC_MISS`: about `176891`
+  - interpretation:
+    - occupancy does not improve in the split path
+    - VMEM reads rise by about `44%`
+    - writes stay effectively unchanged
+    - the inferred TCC hit rate degrades from about `67%` to about `50%`
+    - current evidence says the split left/right WENO5 path is not a good tradeoff for this kernel
+- Runtime threads-per-team experiment for the combined kernel:
+  - no source clause change was made; this was driven only by `OMP_TEAMS_THREAD_LIMIT`
+  - kernel-trace output confirms the runtime knob changes the dispatched workgroup size:
+    - default path: `Workgroup_Size_X = 256`
+    - `OMP_TEAMS_THREAD_LIMIT=192`: `Workgroup_Size_X = 192`
+    - `OMP_TEAMS_THREAD_LIMIT=128`: `Workgroup_Size_X = 128`
+    - `OMP_TEAMS_THREAD_LIMIT=64`: `Workgroup_Size_X = 64`
+  - important limitation:
+    - this runtime tuning does not change the compiler-generated WENO5 metadata
+    - static register footprint and spill counts remain compile-time properties of the same kernel image
+  - plain `rocprofv3` timing comparison for the combined WENO5 kernel:
+    - baseline `256` threads/team:
+      - output: `results/rocprofv3_weno5_split_eval_combined/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2085939 ns`
+      - WENO5 average duration: `6.321e+04 ns`
+    - `192` threads/team:
+      - output: `results/rocprofv3_weno5_threadlimit192/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2040338 ns`
+      - WENO5 average duration: `6.183e+04 ns`
+    - `128` threads/team:
+      - output: `results/rocprofv3_weno5_threadlimit128/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2092174 ns`
+      - WENO5 average duration: `6.340e+04 ns`
+    - `64` threads/team:
+      - output: `results/rocprofv3_weno5_threadlimit64/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2457625 ns`
+      - WENO5 average duration: `7.447e+04 ns`
+  - current best runtime setting from this sweep:
+    - `OMP_TEAMS_THREAD_LIMIT=192`
+    - observed WENO5 kernel time is about `2.2%` lower than the `256`-thread baseline
+  - PMC comparison for `192` vs baseline:
+    - baseline PMC aggregate:
+      - output: `results/rocprofv3_weno5_split_eval_combined_pmc/weno5_profile_counter_collection.csv`
+      - `OccupancyPercent`: about `23.21`
+      - `MeanOccupancyPerCU`: about `7.43`
+      - `Wavefronts`: `1512`
+      - `SQ_INSTS_VMEM_RD`: `290304`
+      - `SQ_INSTS_VMEM_WR`: `18144`
+      - inferred `TCC` hit rate: about `67%`
+    - `192`-thread PMC aggregate:
+      - output: `results/rocprofv3_weno5_threadlimit192_pmc/weno5_profile_counter_collection.csv`
+      - `OccupancyPercent`: about `24.98`
+      - `MeanOccupancyPerCU`: about `7.99`
+      - `Wavefronts`: `1320`
+      - `SQ_INSTS_VMEM_RD`: `290304`
+      - `SQ_INSTS_VMEM_WR`: `18144`
+      - inferred `TCC` hit rate: about `66.9%`
+  - interpretation:
+    - reducing the team size modestly to `192` improves occupancy without changing memory-traffic counts
+    - dropping further to `128` provides no benefit
+    - dropping to `64` is clearly harmful
+    - runtime team-size tuning is a plausible low-risk lever for the combined kernel, but it is not a spill-reduction mechanism
+  - tooling follow-up:
+    - `make run OMP_TEAMS_THREAD_LIMIT=192 ...` and `make profile-weno5 OMP_TEAMS_THREAD_LIMIT=192 ...` now reproduce this setting directly
+  - current-source recheck outside the sandbox:
+    - clean baseline timing output: `results/rocprofv3_weno5_current_baseline_fixed/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2097308 ns`
+      - WENO5 average duration: `6.355e+04 ns`
+    - `OMP_TEAMS_THREAD_LIMIT=192` timing output: `results/rocprofv3_weno5_threadlimit192_current/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2079062 ns`
+      - WENO5 average duration: `6.300e+04 ns`
+    - interpretation:
+      - on the current source state, `192` is still better than the default runtime setting
+      - the current measured WENO5 improvement is about `0.9%`, smaller than the earlier coarse-sweep reading but still positive
+  - narrow runtime sweep outside the sandbox on the current source state:
+    - `OMP_TEAMS_THREAD_LIMIT=160`:
+      - trace confirms `Workgroup_Size_X = 160`
+      - output: `results/rocprofv3_weno5_threadlimit160_narrow/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2342098 ns`
+      - WENO5 average duration: `7.097e+04 ns`
+    - `OMP_TEAMS_THREAD_LIMIT=192`:
+      - trace confirms `Workgroup_Size_X = 192`
+      - output: `results/rocprofv3_weno5_threadlimit192_narrow/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2064178 ns`
+      - WENO5 average duration: `6.255e+04 ns`
+    - `OMP_TEAMS_THREAD_LIMIT=224`:
+      - trace confirms `Workgroup_Size_X = 224`
+      - output: `results/rocprofv3_weno5_threadlimit224_narrow/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2145299 ns`
+      - WENO5 average duration: `6.501e+04 ns`
+    - interpretation:
+      - `192` remains the best runtime team-size setting tested so far
+      - `224` is close to default but worse than `192`
+      - `160` is clearly harmful for this kernel
+  - PMC comparison outside the sandbox for current default vs `OMP_TEAMS_THREAD_LIMIT=192`:
+    - baseline PMC output: `results/rocprofv3_weno5_current_baseline_pmc/weno5_profile_counter_collection.csv`
+      - `OccupancyPercent`: about `23.24`
+      - `MeanOccupancyPerCU`: about `7.44`
+      - `Wavefronts`: `1512`
+      - `MemUnitBusy`: about `55.25`
+      - `MemUnitStalled`: about `0.513`
+      - `SQ_INSTS_VMEM_RD`: `290304`
+      - `SQ_INSTS_VMEM_WR`: `18144`
+      - inferred `TCC` hit rate: about `66.4%`
+    - `192`-thread PMC output: `results/rocprofv3_weno5_threadlimit192_current_pmc/weno5_profile_counter_collection.csv`
+      - `OccupancyPercent`: about `25.05`
+      - `MeanOccupancyPerCU`: about `8.02`
+      - `Wavefronts`: `1320`
+      - `MemUnitBusy`: about `55.22`
+      - `MemUnitStalled`: about `0.554`
+      - `SQ_INSTS_VMEM_RD`: `290304`
+      - `SQ_INSTS_VMEM_WR`: `18144`
+      - inferred `TCC` hit rate: about `66.7%`
+  - interpretation:
+    - the `192`-thread win on the current source state is primarily an occupancy/work-distribution effect
+    - measured VMEM read/write traffic stays unchanged
+    - cache behavior is effectively unchanged
+    - memory-unit stall fraction is not improved, so this runtime knob does not address the deeper memory-latency bottleneck
+- Clause-based thread-limit experiment for the generic combined kernel:
+  - source change:
+    - added `thread_limit(192)` directly to the generic combined `s_weno5_kernel` OpenMP directive
+  - host-fallback validation preserved the checksum baseline:
+    - `Checksum T : 3.9728680936E+06`
+  - short trace validation under `results/rocprofv3_weno5_clause_threadlimit192` confirms:
+    - WENO5 `Workgroup_Size_X = 192`
+    - WENO5 `Grid_Size_X = 84480`
+  - important codegen note:
+    - refreshed save-temps still reports the same top-line generic combined kernel metadata:
+      - `num_vgpr = 167`
+      - `numbered_sgpr = 96`
+      - `sgpr_spill_count = 34`
+    - the trace output is the authoritative confirmation that the clause changed the actual dispatched workgroup size
+  - plain `rocprofv3` timing under `results/rocprofv3_weno5_clause_threadlimit192_full` reports:
+    - WENO5 total duration: `2051215 ns`
+    - WENO5 average duration: `6.216e+04 ns`
+  - relative comparison:
+    - versus current generic baseline `results/rocprofv3_weno5_current_baseline_fixed`:
+      - improved from `2097308 ns` to `2051215 ns`
+      - gain is about `2.2%`
+    - versus prior runtime-only `192` tuning `results/rocprofv3_weno5_threadlimit192_current`:
+      - improved from `2079062 ns` to `2051215 ns`
+      - gain is about `1.3%`
+  - PMC comparison under `results/rocprofv3_weno5_clause_threadlimit192_pmc`:
+    - `OccupancyPercent`: about `25.18`
+    - `MeanOccupancyPerCU`: about `8.06`
+    - `Wavefronts`: `1320`
+    - `MemUnitBusy`: about `55.84`
+    - `MemUnitStalled`: about `0.569`
+    - `SQ_INSTS_VMEM_RD`: `290304`
+    - `SQ_INSTS_VMEM_WR`: `18144`
+    - inferred `TCC` hit rate: about `66.6%`
+  - interpretation:
+    - this behaves like the runtime-only `192` experiment in terms of memory traffic
+    - the main gain is still occupancy/work-distribution rather than a reduction in VMEM traffic or spills
+    - within the currently tested generic combined-kernel variants, this is the best measured WENO5 timing so far
+- Original-start comparison for the current best generic combined kernel:
+  - original combined-kernel codegen at the start of this work reported:
+    - `num_vgpr = 256`
+    - `num_agpr = 23`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 192`
+  - current best generic combined-kernel codegen with the accepted source changes plus `thread_limit(192)` reports:
+    - `num_vgpr = 167`
+    - `num_agpr = 0`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 34`
+  - relative to the original codegen starting point:
+    - `num_vgpr` is lower by `89`
+    - `num_agpr` is lower by `23`
+    - `sgpr_spill_count` is lower by `158`
+  - original WENO5 timing baseline from the first successful `rocprofv3` run:
+    - `results/rocprofv3_weno5/weno5_profile_kernel_stats.csv`
+    - WENO5 total duration: `2105300 ns`
+    - WENO5 average duration: `6.380e+04 ns`
+  - current best generic combined-kernel timing:
+    - `results/rocprofv3_weno5_clause_threadlimit192_full/weno5_profile_kernel_stats.csv`
+    - WENO5 total duration: `2051215 ns`
+    - WENO5 average duration: `6.216e+04 ns`
+  - relative to the original profiling starting point:
+    - WENO5 total duration improves by `54085 ns`
+    - measured speedup is about `2.6%`
+  - host-fallback reference:
+    - earliest recorded host-fallback WENO5-only timing was `0.155236 s` per iteration
+    - latest host-fallback validation with the clause-based version was `0.041599 s` per iteration
+  - host fallback is therefore much faster than the original recorded start point, though the main optimization target remains the GPU path
+- Explicit-shape dummy experiment for the generic combined kernel:
+  - source change:
+    - converted the generic combined `s_weno5_kernel` dummy arrays from assumed-shape to explicit-shape bounds matching the harness allocations
+    - retained the accepted `thread_limit(192)` clause in the same kernel
+  - host-fallback validation preserved the checksum baseline:
+    - `Checksum T : 3.9728680936E+06`
+  - MLIR interface result:
+    - regenerated device MLIR for `_QMm_weno_standalonePs_weno5_kernel` now shows plain pointer dummy arguments without the earlier descriptor-style `fir.target` markings
+  - trace validation under `results/rocprofv3_weno5_explicit_shape_combined` confirms:
+    - WENO5 `Workgroup_Size_X = 192`
+    - WENO5 `Grid_Size_X = 84480`
+    - WENO5 trace-reported launch registers:
+      - `VGPR_Count = 36`
+      - `Accum_VGPR_Count = 132`
+      - `SGPR_Count = 112`
+  - save-temps/codegen result:
+    - refreshed generic combined WENO5 save-temps reports:
+      - `num_vgpr = 187`
+      - `numbered_sgpr = 96`
+      - `sgpr_spill_count = 45`
+      - `.max_flat_workgroup_size = 192`
+    - interpretation:
+      - top-line static register metadata looks worse than the prior clause-based baseline despite the interface simplification
+  - plain `rocprofv3` timing under `results/rocprofv3_weno5_explicit_shape_combined` reports:
+    - WENO5 total duration: `1502409 ns`
+    - WENO5 average duration: `4.553e+04 ns`
+  - relative comparison:
+    - versus the current clause-based generic baseline `results/rocprofv3_weno5_clause_threadlimit192_full`:
+      - improved from `2051215 ns` to `1502409 ns`
+      - gain is about `26.8%`
+    - versus the earlier generic default baseline `results/rocprofv3_weno5_current_baseline_fixed`:
+      - improved from `2097308 ns` to `1502409 ns`
+      - gain is about `28.4%`
+  - PMC comparison under `results/rocprofv3_weno5_explicit_shape_combined_pmc`:
+    - `OccupancyPercent`: about `21.16`
+    - `MeanOccupancyPerCU`: about `6.77`
+    - `Wavefronts`: `1320`
+    - `MemUnitBusy`: about `32.45`
+    - `MemUnitStalled`: about `0.712`
+    - `SQ_INSTS_VMEM_RD`: `65016`
+    - `SQ_INSTS_VMEM_WR`: `18144`
+    - inferred `TCC` hit rate: about `55.0%`
+  - interpretation:
+    - this portable interface change behaves much more like the specialized-combined diagnostic path than like the earlier runtime-only tuning
+    - occupancy falls relative to the clause-based baseline, but VMEM reads collapse from `290304` to `65016`
+    - the strongest current hypothesis is that removing the generic assumed-shape descriptor machinery cuts effective memory traffic enough to dominate the worse top-line register metadata
+    - this is now the best measured portable WENO5 source result in the tree so far
+- Discarded latency-staging experiment:
+  - staging the generic combined kernel `beta_coef(j, :, :)` row into just-in-time scalar coefficients preserved the host checksum baseline
+  - refreshed save-temps for the generic combined kernel improved to:
+    - `num_vgpr = 164`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 3`
+  - authoritative `rocprofv3` timing under `results/rocprofv3_weno5_explicit_shape_beta_stage` reports:
+    - WENO5 total duration: `1526569 ns`
+    - WENO5 average duration: `4.626e+04 ns`
+  - relative to the explicit-shape generic baseline `results/rocprofv3_weno5_explicit_shape_combined`:
+    - WENO5 total duration regressed slightly from `1502409 ns`
+  - interpretation:
+    - reducing top-line spill metadata alone did not improve this kernel further
+    - that source change was reverted
+- Kept latency-staging experiment:
+  - staging the generic combined kernel `polyL(j, :, :)` / `polyR(j, :, :)` coefficients into reused just-in-time scalars preserved the host checksum baseline
+  - refreshed save-temps for the generic combined kernel reports:
+    - `num_vgpr = 164`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 5`
+    - `.max_flat_workgroup_size = 192`
+  - authoritative `rocprofv3` timing under `results/rocprofv3_weno5_explicit_shape_poly_stage` reports:
+    - WENO5 total duration: `1482574 ns`
+    - WENO5 average duration: `4.493e+04 ns`
+  - relative to the explicit-shape generic baseline `results/rocprofv3_weno5_explicit_shape_combined`:
+    - WENO5 total duration improves from `1502409 ns`
+    - measured gain is about `1.3%`
+  - PMC comparison under `results/rocprofv3_weno5_explicit_shape_poly_stage_pmc`:
+    - `OccupancyPercent`: about `20.83`
+    - `MeanOccupancyPerCU`: about `6.67`
+    - `Wavefronts`: `1320`
+    - `MemUnitBusy`: about `32.09`
+    - `MemUnitStalled`: about `0.696`
+    - `SQ_INSTS_VMEM_RD`: `65016`
+    - `SQ_INSTS_VMEM_WR`: `18144`
+    - inferred `TCC` hit rate: about `55.0%`
+  - interpretation:
+    - the measured gain does not come from another reduction in VMEM read or write traffic
+    - the likely win is lower instruction/addressing overhead plus improved live-state behavior around the polynomial coefficient loads
+    - this is now the current best measured portable WENO5 source result in the tree
+- Combined-vs-split descriptor finding:
+  - refreshed save-temps metadata now shows:
+    - combined kernel:
+      - `num_vgpr = 167`
+      - `numbered_sgpr = 96`
+      - `sgpr_spill_count = 34`
+    - split left kernel:
+      - `num_vgpr = 126`
+      - `numbered_sgpr = 92`
+      - `sgpr_spill_count = 0`
+    - split right kernel:
+      - `num_vgpr = 126`
+      - `numbered_sgpr = 92`
+      - `sgpr_spill_count = 0`
+  - current interpretation:
+    - the remaining combined-kernel SGPR pressure is at least partly consistent with carrying both left and right array descriptors/live state in one kernel
+    - this points more toward interface/live-range pressure than toward another obvious arithmetic cleanup
+- Specialized-combined descriptor-pressure experiment:
+  - host-fallback validation with `WENO5_SPECIALIZED_COMBINED=1` preserved the checksum baseline:
+    - `Checksum T : 3.9728680936E+06`
+  - refreshed save-temps reports for the specialized combined kernels:
+    - x kernel:
+      - symbol: `__omp_offloading_8116438_e30011e2__QMm_weno_standalonePs_weno5_kernel_x_l624`
+      - `vgpr_count = 161`
+      - `sgpr_count = 100`
+      - `sgpr_spill_count = 4`
+    - y kernel:
+      - symbol: `__omp_offloading_8116438_e30011e2__QMm_weno_standalonePs_weno5_kernel_y_l782`
+      - `vgpr_count = 161`
+      - `sgpr_count = 100`
+      - `sgpr_spill_count = 4`
+    - z kernel:
+      - symbol: `__omp_offloading_8116438_e30011e2__QMm_weno_standalonePs_weno5_kernel_z_l940`
+      - `vgpr_count = 161`
+      - `sgpr_count = 100`
+      - `sgpr_spill_count = 4`
+  - relative to the generic combined kernel:
+    - `vgpr_count` improved from `167` to `161`
+    - `sgpr_spill_count` improved from `34` to `4`
+    - `numbered_sgpr` did not improve
+  - plain `rocprofv3` timing outside the sandbox:
+    - generic combined baseline:
+      - `results/rocprofv3_weno5_current_baseline_fixed/weno5_profile_kernel_stats.csv`
+      - WENO5 total duration: `2097308 ns`
+      - WENO5 average duration: `6.355e+04 ns`
+    - specialized combined:
+      - `results/rocprofv3_weno5_specialized_combined/weno5_profile_kernel_stats.csv`
+      - total specialized WENO5 duration: `1525452 ns`
+      - average per specialized x/y/z kernel call: about `4.623e+04 ns`
+      - effective improvement versus the generic combined baseline is about `27%`
+    - specialized combined with `OMP_TEAMS_THREAD_LIMIT=192`:
+      - `results/rocprofv3_weno5_specialized_combined_threadlimit192/weno5_profile_kernel_stats.csv`
+      - total specialized WENO5 duration: `1524487 ns`
+      - interpretation:
+        - `192` adds essentially no meaningful benefit on top of the specialized source change
+  - PMC comparison for the specialized combined experiment:
+    - output: `results/rocprofv3_weno5_specialized_combined_pmc/weno5_profile_counter_collection.csv`
+    - aggregated over the specialized x/y/z kernels:
+      - `OccupancyPercent`: about `20.79`
+      - `MeanOccupancyPerCU`: about `6.66`
+      - `Wavefronts`: `1512`
+      - `MemUnitBusy`: about `34.27`
+      - `MemUnitStalled`: about `0.600`
+      - `SQ_INSTS_VMEM_RD`: `74088`
+      - `SQ_INSTS_VMEM_WR`: `18144`
+      - inferred `TCC` hit rate: about `52.5%`
+  - interpretation:
+    - this source experiment is much faster despite lower occupancy
+    - the strongest counter change is a large drop in measured VMEM read traffic
+    - this is consistent with the live-descriptor/interface-pressure hypothesis being real
+    - because this path is harness-specialized, the result should be treated as a diagnostic clue rather than a final accepted optimization
+- Discarded specialized experiment:
+  - additionally changing the specialized x/y/z kernels to explicit-shape `vL` / `vR` dummy arguments preserved the host checksum baseline
+  - refreshed save-temps for the specialized kernels remained effectively unchanged at:
+    - `num_vgpr = 161`
+    - `numbered_sgpr = 96`
+    - `sgpr_spill_count = 4`
+  - authoritative `rocprofv3` timing under `results/rocprofv3_weno5_specialized_combined_explicit_shape` reports:
+    - x kernel total duration: `672163 ns`
+    - y kernel total duration: `664166 ns`
+    - z kernel total duration: `512803 ns`
+    - total specialized WENO5 duration: `1849132 ns`
+  - relative to the earlier specialized-combined baseline `results/rocprofv3_weno5_specialized_combined`:
+    - total specialized WENO5 duration regressed from `1525452 ns`
+  - interpretation:
+    - explicit-shape `vL` / `vR` dummies do not help on top of the already-specialized x/y/z path
+    - that source change was reverted
+- Historical note:
+  - `results/rocprofv3_weno5_post_beta_simplify` came from an earlier harness-specific beta-term simplification pass
+  - under the current user constraint, that shortcut is not a valid direction for future work and is not the basis for new source changes
+
+Latest profiling attempt:
+
+- Outside the Codex sandbox, direct `rocprofv3` profiling succeeded with:
+  - `ROCR_VISIBLE_DEVICE=0`
+  - `OMP_TARGET_OFFLOAD=MANDATORY`
+  - no `srun`
+- Output artifact produced:
+  - `results/rocprofv3_weno5/weno5_profile_results.db`
+- `rocprofv3` summary reports WENO5 as the dominant kernel:
+  - kernel symbol: `__omp_offloading_8116438_e30011e2__QMm_weno_standalonePs_weno5_kernel_l454`
+  - calls: `33`
+  - total duration: `2105300 ns`
+  - average duration: `6.380e+04 ns`
+  - inclusive percent: `55.423138`
+- Updated wrapper verification with machine-readable outputs succeeded:
+  - output files now include:
+    - `results/rocprofv3_weno5/weno5_profile_kernel_stats.csv`
+    - `results/rocprofv3_weno5/weno5_profile_kernel_trace.csv`
+    - `results/rocprofv3_weno5/weno5_profile_agent_info.csv`
+    - `results/rocprofv3_weno5/weno5_profile_domain_stats.csv`
+    - `results/rocprofv3_weno5/weno5_profile_results.json`
+    - `results/rocprofv3_weno5/weno5_profile_results.db`
+- Available PMCs were captured successfully with:
+  - `make list-pmc`
+  - output file: `results/rocprofv3_avail_pmc.txt`
+- First hardware-counter baseline was captured with:
+  - `make profile-weno5 ROCPROFV3_OUTPUT_DIR=results/rocprofv3_weno5_pmc_baseline WENO_WARMUP_ITERS=1 WENO_BENCH_ITERS=10 ROCPROFV3_PMC_ARGS='--pmc OccupancyPercent MeanOccupancyPerCU Wavefronts MemUnitBusy MemUnitStalled SQ_INSTS_VMEM_RD SQ_INSTS_VMEM_WR TCC_HIT TCC_MISS'`
+  - output file: `results/rocprofv3_weno5_pmc_baseline/weno5_profile_counter_collection.csv`
+- Initial WENO5 PMC observations from the baseline:
+  - `OccupancyPercent` is about `23%`
+  - `MeanOccupancyPerCU` is about `7.3` to `7.5`
+  - `MemUnitBusy` is about `55%` to `57%`
+  - `MemUnitStalled` is about `0.45` to `0.56`
+  - `SQ_INSTS_VMEM_RD` is `290304`
+  - `SQ_INSTS_VMEM_WR` is `18144`
+  - `TCC_HIT` is about `258k` to `261k`
+  - `TCC_MISS` is about `130k`
+  - inferred `TCC` hit rate is roughly `67%`
+- Second hardware-counter baseline was captured with:
+  - `make profile-weno5 ROCPROFV3_OUTPUT_DIR=results/rocprofv3_weno5_pmc_memory_detail WENO_WARMUP_ITERS=1 WENO_BENCH_ITERS=10 ROCPROFV3_PMC_ARGS='--pmc TA_BUSY_avr TA_DATA_STALLED_BY_TC_CYCLES TCC_BUSY_avr TCC_TAG_STALL TCP_PENDING_STALL_CYCLES TCP_TCC_READ_REQ_LATENCY TCP_TCP_LATENCY WriteUnitStalled'`
+  - output file: `results/rocprofv3_weno5_pmc_memory_detail/weno5_profile_counter_collection.csv`
+- Initial WENO5 memory-detail observations:
+  - `TA_BUSY_avr` is consistently around `53k`
+  - `TCC_BUSY_avr` is consistently around `83k` to `85k`
+  - `TCC_TAG_STALL` is consistently around `24.3k` to `24.9k`
+  - `TCP_PENDING_STALL_CYCLES` is consistently around `1.7M` to `2.0M`
+  - `TCP_TCC_READ_REQ_LATENCY` is consistently around `81M` to `86M`
+  - `TCP_TCP_LATENCY` is consistently around `192M` to `200M`
+  - `WriteUnitStalled` is consistently around `4.0` to `4.6`
+  - interpretation:
+    - low occupancy remains real
+    - but the remaining bottleneck also includes substantial TCP/TCC-side latency / pending-stall behavior
+- Historical occupancy/memory baseline after the earlier beta simplification pass:
+  - output file: `results/rocprofv3_weno5_pmc_post_beta/weno5_profile_counter_collection.csv`
+  - initial reading:
+    - `OccupancyPercent` remains about `22%` to `23%`
+    - `MeanOccupancyPerCU` remains about `7.1` to `7.5`
+    - `SQ_INSTS_VMEM_RD` dropped from `290304` to `263088`
+    - `SQ_INSTS_VMEM_WR` stayed at `18144`
+    - `TCC_MISS` stayed about `130k`
+    - `TCC_HIT` dropped to about `177k` to `180k`
+  - interpretation:
+    - occupancy did not materially change
+    - that historical pass reduced measured VMEM read traffic, but it is not a valid new-change direction under the current user constraint
+
+ROCm module test:
+
+- `module load rocm/7.2.0` successfully updates `PATH` and `LD_LIBRARY_PATH`.
+- After loading the module, direct execution with:
+  - `ROCR_VISIBLE_DEVICE=0`
+  - `ROCR_VISIBLE_DEVICES=0`
+  - `OMP_TARGET_OFFLOAD=MANDATORY`
+  still fails with:
+  - `omptarget fatal error 1: failure of target construct while offloading is mandatory`
+
+OpenMP runtime diagnostic:
+
+- Running with `LIBOMPTARGET_DEBUG=1` shows the specific failure:
+  - `TARGET AMDGPU RTL --> Failed to initialize AMDGPU's HSA library`
+  - `Registered plugin AMDGPU with 0 visible device(s)`
+  - `Skipping plugin AMDGPU with no visible devices`
+- This indicates the AMDGPU OpenMP plugin is present, but HSA initialization fails in this environment before any device becomes visible to OpenMP.
+
+HSA-layer diagnostic:
+
+- `module load rocm/7.2.0 && env ROCR_VISIBLE_DEVICES=0 /opt/rocm-7.2.0/bin/rocminfo`
+  fails with:
+  - `Unable to open /dev/kfd read-write: No such file or directory`
+  - `Failed to get user name to check for video group membership`
+- This confirms the current shell environment does not have usable access to the ROCm kernel driver interface.
+
+## Known Limitations
+
+- Mandatory offload profiling and runtime validation require a GPU allocation.
+- `rocprofv3` profiling has not yet been executed end-to-end in this workspace.
+- The current blocker is no usable OpenMP offload device/runtime inside the Codex sandbox.
+- The blocker applies to the Codex sandboxed shell specifically; outside the sandbox on the same node, ROCm visibility and mandatory offload work.
+- Loading the ROCm 7.2.0 module alone is not sufficient to make the OpenMP offload runtime see a usable target device from this environment.
+- The current concrete runtime failure is HSA initialization failure inside the AMDGPU `libomptarget` plugin.
+- Root cause on this shell appears to be missing/unavailable `/dev/kfd`, which prevents HSA from opening the GPU driver interface.
+- Current default workflow now uses direct execution with `ROCR_VISIBLE_DEVICE=0` and `ROCR_VISIBLE_DEVICES=0`.
+- The OpenMP clause structure has been preserved so far.
+
+## TODO
+
+- [x] Re-run `make profile-weno5` on a node where mandatory OpenMP offload succeeds and collect the first `rocprofv3` baseline.
+- [x] Decide the first `rocprofv3` metric set for register pressure, occupancy, and memory behavior.
+- [x] Inspect `weno_standalone_amdflang_save_temps.amdgcn.gfx90a.img.lto.s` around the WENO5 kernel body/metadata for spill and register-pressure clues.
+- [x] Inspect `weno_standalone-openmp-amdgcn-amd-amdhsa-gfx90a-llvmir.mlir` for boxed/private temporaries and interface-lowering clues.
+- [x] Inspect addressing and interface patterns enough to motivate the explicit-shape and staged-coefficient experiments.
+- [x] Make the first small optimization pass in `s_weno5_kernel`.
+- [x] Re-run `make build-save-temps` after the scalarization pass and compare WENO5 VGPR/SGPR usage plus boxed-private lowering.
+- [x] Re-run `make build-save-temps` in a cleaner shell session and capture the refreshed WENO5 `.lto.s` metadata (`num_vgpr`, `numbered_sgpr`, `sgpr_spill_count`).
+- [x] Re-profile after the first code change and compare against baseline.
+- [x] Keep only changes that improve target-GPU behavior.
+- [x] Explore portable interface simplification in `s_weno5_kernel`, starting with explicit-shape dummy arguments to test whether descriptor traffic/live state can be reduced without harness specialization.
+- [ ] More fully map the gap between the diagnostic specialized x/y/z kernels and the accepted portable explicit-shape implementation:
+  - identify exactly which parts of the specialized win appear to come from eliminating generic descriptors versus from direct module-array references
+  - test the smallest portable refactors that can remove descriptor/live-state pressure while preserving the original algorithm and clause structure
+  - treat the specialized path as a diagnostic upper bound, not as the final accepted implementation
+- [x] Look for reuse/staging changes that shorten memory-latency exposure without reintroducing high-pressure persistent scalar caches such as the rejected `dL` / `dR` cache.
+  - completed sub-experiments:
+    - staged `beta_coef` row values into just-in-time scalars and reverted the change after a small runtime regression
+    - staged `polyL` / `polyR` rows into just-in-time scalars and kept the change after a measured runtime win
+- [ ] Sweep clause/runtime tuning only if needed around the accepted generic combined-kernel `thread_limit(192)` version; current evidence says source-side interface changes dominate the runtime-only tuning.
+- [ ] Collect more targeted PMC passes for TCP/TCC latency and cache behavior on the current best generic combined version before and after each new source experiment.
+  - use `results/rocprofv3_weno5_explicit_shape_poly_stage` as the baseline for new comparisons
+
+## Suggested Next Commands
+
+```bash
+make build
+make build-save-temps
+make profile-weno5 WENO_WARMUP_ITERS=1 WENO_BENCH_ITERS=10
+```
