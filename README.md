@@ -114,22 +114,30 @@ also supply any path as the first positional argument.
 
 ### 2. Environment variables
 
-| Variable                       | Default | Meaning                                                                 |
-|--------------------------------|---------|-------------------------------------------------------------------------|
-| `WENO_WARMUP_ITERS`            | `1`     | Warmup iterations before timing                                         |
-| `WENO_BENCH_ITERS`             | `5`     | Timed benchmark iterations                                              |
-| `WENO_KERNEL_MODE`             | `all`   | Which kernel family to run (`all`, `weno3`, `weno5`, `weno7`, ...)      |
-| `WENO5_BENCH_SCOPE`            | `full`  | WENO5-only: `full` (with reshape/copy) or `kernel` (reconstruction only)|
-| `WENO5_SPLIT_KERNELS`          | `0`     | WENO5: split combined kernel into discrete kernels                      |
-| `WENO5_SPECIALIZED_COMBINED`   | `0`     | WENO5: use specialized combined kernel                                  |
-| `OMP_TARGET_OFFLOAD`           | `MANDATORY` | Fail hard if offload unavailable (set by `wenoss.sh run`)           |
-| `ROCR_VISIBLE_DEVICE[S]`       | `0`     | Which AMD GPU to use                                                    |
+Defaults below are what `wenoss.sh run` passes to the binary (not what
+the binary falls back to when launched bare — those are lower: `warmup=1`,
+`bench=5`, `kernel_mode=all`).
+
+| Variable                       | Default   | Meaning                                                                 |
+|--------------------------------|-----------|-------------------------------------------------------------------------|
+| `WENO_WARMUP_ITERS`            | `5`       | Warmup iterations before timing                                         |
+| `WENO_BENCH_ITERS`             | `10`      | Timed benchmark iterations                                              |
+| `WENO_KERNEL_MODE`             | `weno5`   | Which kernel family to run (`all`, `weno3`, `weno5`, `weno7`, ...)      |
+| `WENO5_BENCH_SCOPE`            | `full`    | WENO5-only: `full` (with reshape/copy) or `kernel` (reconstruction only)|
+| `WENO5_SPLIT_KERNELS`          | `0`       | WENO5: split combined kernel into discrete kernels                      |
+| `WENO5_SPECIALIZED_COMBINED`   | `0`       | WENO5: use specialized combined kernel                                  |
+| `OMP_TARGET_OFFLOAD`           | `MANDATORY` | Fail hard if offload unavailable                                      |
+| `ROCR_VISIBLE_DEVICE[S]`       | `0`       | Which AMD GPU to use                                                    |
+| `OMP_TEAMS_THREAD_LIMIT`       | *(unset)* | If set, forwarded as-is to cap team thread count                        |
+| `RUNNER`                       | *(empty)* | Optional launcher prefix (e.g. `srun -n 1`)                             |
+| `INPUT_NML`                    | `inputs/weno_input.nml` | Path passed as the binary's first positional arg          |
 
 `wenoss.sh` forwards all of the `WENO_*` / `WENO5_*` variables to the
 binary, so they can be overridden on the command line:
 
 ```bash
 WENO_KERNEL_MODE=weno5 WENO_BENCH_ITERS=20 ./wenoss.sh run amd_mp
+RUNNER="srun -n 1" ./wenoss.sh run amd_mp
 ```
 
 ## Profiling
@@ -157,20 +165,22 @@ committed golden file, and fails if the relative error exceeds
 `WENO_TEST_RTOL` (default `1e-10`).
 
 ```bash
-./wenoss.sh test-update amd_mp    # write tests/golden/all.txt
+./wenoss.sh test-update amd_mp    # write tests/golden/weno5.txt (default mode)
 ./wenoss.sh test amd_mp           # re-run, diff against the golden
 ./wenoss.sh test cce_mp           # same golden — cce_mp must agree within rtol
 WENO_TEST_RTOL=1e-8 ./wenoss.sh test cce_mp
-WENO_TEST_KERNEL_MODE=weno5 ./wenoss.sh test amd_mp   # separate golden per mode
+WENO_TEST_KERNEL_MODE=all ./wenoss.sh test amd_mp    # separate golden per mode
 ```
 
 Golden files are keyed only by kernel mode (`tests/golden/<mode>.txt`) and
 shared across compilers — cce_mp and amd_mp run the same Fortran so they
-should agree within `WENO_TEST_RTOL`. Cross-compiler floating-point
-reassociation (OpenMP reduction ordering, `-O3` tree reductions, different
-math libs) can exceed the default `1e-10`; if the test fails on one
-compiler but passes on the one you used to write the golden, loosen the
-tolerance before assuming a correctness regression.
+should agree within `WENO_TEST_RTOL`. The repo ships with
+`tests/golden/weno5.txt` (the default `WENO_TEST_KERNEL_MODE=weno5`).
+Cross-compiler floating-point reassociation (OpenMP reduction ordering,
+`-O3` tree reductions, different math libs) can exceed the default
+`1e-10`; if the test fails on one compiler but passes on the one you
+used to write the golden, loosen the tolerance before assuming a
+correctness regression.
 
 The run is pinned to `warmup=0`, `bench=1`, `WENO5_SPLIT_KERNELS=0`,
 `WENO5_SPECIALIZED_COMBINED=0` for determinism; `test-update` refuses to
@@ -182,6 +192,7 @@ execute).
 ```
 CMakeLists.txt         CMake build configuration
 wenoss.sh              module loader (when sourced) + build / run / profile driver (when executed)
+.gitignore             excludes build/, results/ (except *_ex/ examples), .venv-*, .rocprofv3/
 inputs/                harness source + default grid/WENO parameters
   weno_standalone.f90
   weno_input.nml
@@ -191,4 +202,10 @@ toolchain/             profiling + sweep helpers, venv requirements, archived no
   requirements.txt     (rocprof-compute Python deps, used by setup-venv)
   old/                 (archived HANDOFF.md / PROGRESS.md)
 tests/golden/          committed reference checksums (see Correctness testing)
+  weno5.txt            (default WENO_TEST_KERNEL_MODE)
+results/               profile / benchmark output (git-ignored)
+  amd_mp_ex/           committed example rocprofv3 CSVs (AMD Flang run)
+  cce_mp_ex/           committed example rocprofv3 CSVs (CCE run)
+build/                 CMake build trees per-compiler (git-ignored)
+  <compiler>/weno_standalone_<compiler>
 ```
