@@ -1,0 +1,180 @@
+[roofline] Generating pmc_perf.csv (roofline counters only).
+Rocprofiler-Compute version: 3.1.1
+Profiler choice: rocprofv1
+Path: /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5
+Target: MI210
+Command: /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/build/cce_mp/weno_standalone_cce_mp /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/inputs/weno_input.nml
+Kernel Selection: None
+Dispatch Selection: None
+Hardware Blocks: All
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Collecting Performance Counters (Roofline Only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+[profiling] Current input file: /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/pmc_perf_0.txt
+   |-> [rocprof] 
+   |-> [rocprof] [0;31mWARNING: We are phasing out development and support for roctracer/rocprofiler/rocprof/rocprofv2 in favor of rocprofiler-sdk/rocprofv3 in upcoming ROCm releases. Going forward, only critical defect fixes will be addressed for older versions of profiling tools and libraries. We encourage all users to upgrade to the latest version, rocprofiler-sdk library and rocprofv3 tool, to ensure continued support and access to new features.[0m
+   |-> [rocprof] 
+   |-> [rocprof] RPL: on '260416_135719' from '/opt/rocm-6.4.2' in '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone'
+   |-> [rocprof] RPL: profiling '""/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/build/cce_mp/weno_standalone_cce_mp /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/inputs/weno_input.nml""'
+   |-> [rocprof] RPL: input file '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/pmc_perf_0.txt'
+   |-> [rocprof] RPL: output dir '/tmp/rpl_data_260416_135719_1726073'
+   |-> [rocprof] RPL: result dir '/tmp/rpl_data_260416_135719_1726073/input0_results_260416_135719'
+   |-> [rocprof] ROCProfiler: input from "/tmp/rpl_data_260416_135719_1726073/input0.xml"
+   |-> [rocprof] gpu_index =
+   |-> [rocprof] kernel =
+   |-> [rocprof] range =
+   |-> [rocprof] 16 metrics
+   |-> [rocprof] SQ_INSTS_VALU_ADD_F16, SQ_INSTS_VALU_MUL_F16, SQ_INSTS_VALU_FMA_F16, SQ_INSTS_VALU_TRANS_F16, SQ_INSTS_VALU_ADD_F32, SQ_INSTS_VALU_MUL_F32, SQ_INSTS_VALU_FMA_F32, SQ_INSTS_VALU_TRANS_F32, TCP_TCC_READ_REQ_sum, TCP_TOTAL_CACHE_ACCESSES_sum, TCP_TCC_WRITE_REQ_sum, TCP_TCC_ATOMIC_WITH_RET_REQ_sum, TCC_EA_RDREQ_32B_sum, TCC_EA_RDREQ_sum, TCC_EA_WRREQ_64B_sum, TCC_EA_WRREQ_sum
+   |-> [rocprof] ===============================================
+   |-> [rocprof] Standalone MFC WENO OpenMP Offload Harness
+   |-> [rocprof] ===============================================
+   |-> [rocprof] OpenMP devices available : 1
+   |-> [rocprof] Default device           : 0
+   |-> [rocprof] Kernel mode              : weno5
+   |-> [rocprof] WENO5 benchmark scope    : kernel
+   |-> [rocprof] WENO5 split kernels      : F
+   |-> [rocprof] WENO5 specialized comb.  : T
+   |-> [rocprof] Warmup iterations        : 5
+   |-> [rocprof] Benchmark iterations     : 20
+   |-> [rocprof] m_cells (from input)     : 199
+   |-> [rocprof] n_cells (from input)     : 199
+   |-> [rocprof] p_cells (from input)     : 199
+   |-> [rocprof] v_size  (from input)     : 8
+   |-> [rocprof] Checksum X :   6.5386334223E+08
+   |-> [rocprof] Checksum Y :   6.5364085459E+08
+   |-> [rocprof] Checksum Z :   6.5364085459E+08
+   |-> [rocprof] Checksum T :   1.9611450514E+09
+   |-> [rocprof] Kernel time total        :     0.095989 s
+   |-> [rocprof] Kernel time per iter     :     0.004799 s
+   |-> [rocprof] All kernel families executed with finite non-zero output.
+   |-> [rocprof] 
+   |-> [rocprof] ROCPRofiler: 87 contexts collected, output directory /tmp/rpl_data_260416_135719_1726073/input0_results_260416_135719
+   |-> [rocprof] File '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/pmc_perf_0.csv' is generating
+   |-> [rocprof] 
+[profiling] Current input file: /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/pmc_perf_1.txt
+   |-> [rocprof] 
+   |-> [rocprof] [0;31mWARNING: We are phasing out development and support for roctracer/rocprofiler/rocprof/rocprofv2 in favor of rocprofiler-sdk/rocprofv3 in upcoming ROCm releases. Going forward, only critical defect fixes will be addressed for older versions of profiling tools and libraries. We encourage all users to upgrade to the latest version, rocprofiler-sdk library and rocprofv3 tool, to ensure continued support and access to new features.[0m
+   |-> [rocprof] 
+   |-> [rocprof] RPL: on '260416_135727' from '/opt/rocm-6.4.2' in '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone'
+   |-> [rocprof] RPL: profiling '""/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/build/cce_mp/weno_standalone_cce_mp /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/inputs/weno_input.nml""'
+   |-> [rocprof] RPL: input file '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/pmc_perf_1.txt'
+   |-> [rocprof] RPL: output dir '/tmp/rpl_data_260416_135727_1726270'
+   |-> [rocprof] RPL: result dir '/tmp/rpl_data_260416_135727_1726270/input0_results_260416_135727'
+   |-> [rocprof] ROCProfiler: input from "/tmp/rpl_data_260416_135727_1726270/input0.xml"
+   |-> [rocprof] gpu_index =
+   |-> [rocprof] kernel =
+   |-> [rocprof] range =
+   |-> [rocprof] 9 metrics
+   |-> [rocprof] SQ_INSTS_VALU_ADD_F64, SQ_INSTS_VALU_MUL_F64, SQ_INSTS_VALU_FMA_F64, SQ_INSTS_VALU_TRANS_F64, SQ_INSTS_VALU_MFMA_MOPS_F16, SQ_INSTS_VALU_MFMA_MOPS_BF16, SQ_INSTS_VALU_MFMA_MOPS_F32, SQ_INSTS_VALU_MFMA_MOPS_F64, TCP_TCC_ATOMIC_WITHOUT_RET_REQ_sum
+   |-> [rocprof] ===============================================
+   |-> [rocprof] Standalone MFC WENO OpenMP Offload Harness
+   |-> [rocprof] ===============================================
+   |-> [rocprof] OpenMP devices available : 1
+   |-> [rocprof] Default device           : 0
+   |-> [rocprof] Kernel mode              : weno5
+   |-> [rocprof] WENO5 benchmark scope    : kernel
+   |-> [rocprof] WENO5 split kernels      : F
+   |-> [rocprof] WENO5 specialized comb.  : T
+   |-> [rocprof] Warmup iterations        : 5
+   |-> [rocprof] Benchmark iterations     : 20
+   |-> [rocprof] m_cells (from input)     : 199
+   |-> [rocprof] n_cells (from input)     : 199
+   |-> [rocprof] p_cells (from input)     : 199
+   |-> [rocprof] v_size  (from input)     : 8
+   |-> [rocprof] Checksum X :   6.5386334223E+08
+   |-> [rocprof] Checksum Y :   6.5364085459E+08
+   |-> [rocprof] Checksum Z :   6.5364085459E+08
+   |-> [rocprof] Checksum T :   1.9611450514E+09
+   |-> [rocprof] Kernel time total        :     0.081910 s
+   |-> [rocprof] Kernel time per iter     :     0.004095 s
+   |-> [rocprof] All kernel families executed with finite non-zero output.
+   |-> [rocprof] 
+   |-> [rocprof] ROCPRofiler: 87 contexts collected, output directory /tmp/rpl_data_260416_135727_1726270/input0_results_260416_135727
+   |-> [rocprof] File '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/pmc_perf_1.csv' is generating
+   |-> [rocprof] 
+[profiling] Current input file: /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/pmc_perf_2.txt
+   |-> [rocprof] 
+   |-> [rocprof] [0;31mWARNING: We are phasing out development and support for roctracer/rocprofiler/rocprof/rocprofv2 in favor of rocprofiler-sdk/rocprofv3 in upcoming ROCm releases. Going forward, only critical defect fixes will be addressed for older versions of profiling tools and libraries. We encourage all users to upgrade to the latest version, rocprofiler-sdk library and rocprofv3 tool, to ensure continued support and access to new features.[0m
+   |-> [rocprof] 
+   |-> [rocprof] RPL: on '260416_135731' from '/opt/rocm-6.4.2' in '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone'
+   |-> [rocprof] RPL: profiling '""/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/build/cce_mp/weno_standalone_cce_mp /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/inputs/weno_input.nml""'
+   |-> [rocprof] RPL: input file '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/pmc_perf_2.txt'
+   |-> [rocprof] RPL: output dir '/tmp/rpl_data_260416_135731_1726458'
+   |-> [rocprof] RPL: result dir '/tmp/rpl_data_260416_135731_1726458/input0_results_260416_135731'
+   |-> [rocprof] ROCProfiler: input from "/tmp/rpl_data_260416_135731_1726458/input0.xml"
+   |-> [rocprof] gpu_index =
+   |-> [rocprof] kernel =
+   |-> [rocprof] range =
+   |-> [rocprof] 2 metrics
+   |-> [rocprof] SQ_LDS_IDX_ACTIVE, SQ_LDS_BANK_CONFLICT
+   |-> [rocprof] ===============================================
+   |-> [rocprof] Standalone MFC WENO OpenMP Offload Harness
+   |-> [rocprof] ===============================================
+   |-> [rocprof] OpenMP devices available : 1
+   |-> [rocprof] Default device           : 0
+   |-> [rocprof] Kernel mode              : weno5
+   |-> [rocprof] WENO5 benchmark scope    : kernel
+   |-> [rocprof] WENO5 split kernels      : F
+   |-> [rocprof] WENO5 specialized comb.  : T
+   |-> [rocprof] Warmup iterations        : 5
+   |-> [rocprof] Benchmark iterations     : 20
+   |-> [rocprof] m_cells (from input)     : 199
+   |-> [rocprof] n_cells (from input)     : 199
+   |-> [rocprof] p_cells (from input)     : 199
+   |-> [rocprof] v_size  (from input)     : 8
+   |-> [rocprof] Checksum X :   6.5386334223E+08
+   |-> [rocprof] Checksum Y :   6.5364085459E+08
+   |-> [rocprof] Checksum Z :   6.5364085459E+08
+   |-> [rocprof] Checksum T :   1.9611450514E+09
+   |-> [rocprof] Kernel time total        :     0.077699 s
+   |-> [rocprof] Kernel time per iter     :     0.003885 s
+   |-> [rocprof] All kernel families executed with finite non-zero output.
+   |-> [rocprof] 
+   |-> [rocprof] ROCPRofiler: 87 contexts collected, output directory /tmp/rpl_data_260416_135731_1726458/input0_results_260416_135731
+   |-> [rocprof] File '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/pmc_perf_2.csv' is generating
+   |-> [rocprof] 
+[profiling] Current input file: /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/timestamps.txt
+   |-> [rocprof] 
+   |-> [rocprof] [0;31mWARNING: We are phasing out development and support for roctracer/rocprofiler/rocprof/rocprofv2 in favor of rocprofiler-sdk/rocprofv3 in upcoming ROCm releases. Going forward, only critical defect fixes will be addressed for older versions of profiling tools and libraries. We encourage all users to upgrade to the latest version, rocprofiler-sdk library and rocprofv3 tool, to ensure continued support and access to new features.[0m
+   |-> [rocprof] 
+   |-> [rocprof] RPL: on '260416_135735' from '/opt/rocm-6.4.2' in '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone'
+   |-> [rocprof] RPL: profiling '""/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/build/cce_mp/weno_standalone_cce_mp /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/inputs/weno_input.nml""'
+   |-> [rocprof] RPL: input file '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/perfmon/timestamps.txt'
+   |-> [rocprof] RPL: output dir '/tmp/rpl_data_260416_135735_1726646'
+   |-> [rocprof] RPL: result dir '/tmp/rpl_data_260416_135735_1726646/input0_results_260416_135735'
+   |-> [rocprof] ROCProfiler: input from "/tmp/rpl_data_260416_135735_1726646/input0.xml"
+   |-> [rocprof] gpu_index =
+   |-> [rocprof] kernel =
+   |-> [rocprof] range =
+   |-> [rocprof] 0 metrics
+   |-> [rocprof] ===============================================
+   |-> [rocprof] Standalone MFC WENO OpenMP Offload Harness
+   |-> [rocprof] ===============================================
+   |-> [rocprof] OpenMP devices available : 1
+   |-> [rocprof] Default device           : 0
+   |-> [rocprof] Kernel mode              : weno5
+   |-> [rocprof] WENO5 benchmark scope    : kernel
+   |-> [rocprof] WENO5 split kernels      : F
+   |-> [rocprof] WENO5 specialized comb.  : T
+   |-> [rocprof] Warmup iterations        : 5
+   |-> [rocprof] Benchmark iterations     : 20
+   |-> [rocprof] m_cells (from input)     : 199
+   |-> [rocprof] n_cells (from input)     : 199
+   |-> [rocprof] p_cells (from input)     : 199
+   |-> [rocprof] v_size  (from input)     : 8
+   |-> [rocprof] Checksum X :   6.5386334223E+08
+   |-> [rocprof] Checksum Y :   6.5364085459E+08
+   |-> [rocprof] Checksum Z :   6.5364085459E+08
+   |-> [rocprof] Checksum T :   1.9611450514E+09
+   |-> [rocprof] Kernel time total        :     0.074710 s
+   |-> [rocprof] Kernel time per iter     :     0.003736 s
+   |-> [rocprof] All kernel families executed with finite non-zero output.
+   |-> [rocprof] 
+   |-> [rocprof] ROCPRofiler: 87 contexts collected, output directory /tmp/rpl_data_260416_135735_1726646/input0_results_260416_135735
+   |-> [rocprof] File '/lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5/timestamps.csv' is generating
+   |-> [rocprof] 
+[roofline] Checking for roofline.csv in /lustre/orion/cfd154/scratch/bwilfong3/weno_standalone/results/rocprof_compute_weno5
+[roofline] No roofline data found. Generating...
+[roofline] Empirical Roofline PDFs saved!
